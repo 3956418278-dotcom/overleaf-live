@@ -1,0 +1,11 @@
+{
+  "name": "overleaf-live-sidecar",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Realtime Overleaf OT sync, cloud PDF compiler & SyncTeX Aux Pane sidecar for Antigravity",
+  "scripts": {
+    "start": "node main.mjs",
+    "test": "node test/selftest.mjs"
+  }
+}

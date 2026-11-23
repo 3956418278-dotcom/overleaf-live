@@ -1,0 +1,13 @@
+{
+  "name": "overleaf-live",
+  "displayName": "Overleaf 实时工作台",
+  "description": "让 Agent 在本地镜像实时读写并云端编译 Overleaf 项目，在侧边栏同步查看文件树、可编辑源码、变更对比与编译后 PDF。",
+  "version": "1.0.0",
+  "author": "3956418278-dotcom",
+  "logo": "assets/logo.svg",
+  "suggestedPrompts": [
+    "打开 Overleaf 实时工作台并连接我的论文项目",
+    "检查当前 Overleaf 项目的云端编译错误并自动修复",
+    "润色 Overleaf 项目的引言章节并触发云端编译预览"
+  ]
+}

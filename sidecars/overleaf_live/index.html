@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta http-equiv="Content-Security-Policy" content="frame-src 'none'; object-src 'none'; base-uri 'none'; script-src 'self' blob:; worker-src 'self' blob:;">
+  <title>Overleaf Live 工作台</title>
+  <script src="/preload.js"></script>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <div id="app" class="app-shell">
+    <!-- Compact Top Header Bar -->
+    <header class="header">
+      <div class="header-row header-row-primary">
+        <button
+          id="tree-toggle-btn"
+          type="button"
+          class="btn-icon"
+          title="切换文件树侧栏"
+          aria-label="切换文件树"
+          aria-controls="file-tree-drawer"
+          aria-expanded="true"
+        >
+          <svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M2 3.5A1.5 1.5 0 0 1 3.5 2h9A1.5 1.5 0 0 1 14 3.5v9a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 12.5v-9ZM6 2v12" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" />
+          </svg>
+        </button>
+
+        <div class="select-wrap">
+          <select id="project-select" class="project-select" aria-label="切换或选择 Overleaf 项目">
+            <option value="">未连接项目</option>
+          </select>
+        </div>
+
+        <button id="connect-project-btn" type="button" class="btn btn-secondary" title="打开项目连接弹窗">
+          连接项目
+        </button>
+
+        <button id="auth-btn" type="button" class="btn btn-ghost" title="Overleaf 登录与实例设置">
+          登录 / 设置
+        </button>
+      </div>
+
+      <div class="header-row header-row-status">
+        <span id="sync-pill" class="pill sync-pill" role="status" data-status="idle">
+          <span class="status-dot" aria-hidden="true"></span>
+          <span id="sync-label">未连接</span>
+        </span>
+
+        <label class="auto-compile-label" title="编辑静默后自动触发云端编译">
+          <input id="auto-compile-toggle" type="checkbox" checked>
+          <span>自动编译</span>
+        </label>
+
+        <div class="header-actions">
+          <button id="undo-btn" type="button" class="btn btn-ghost" title="撤销最近一轮改动">
+            撤销上一步
+          </button>
+          <button id="compile-btn" type="button" class="btn btn-primary" title="触发 Overleaf 云端编译 (Ctrl+S)">
+            编译 Ctrl+S
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Dismissible Alert Banner -->
+    <div id="alert-banner" class="alert-banner hidden" role="alert">
+      <span id="alert-message" class="alert-message"></span>
+      <button id="alert-dismiss-btn" type="button" class="btn-icon alert-dismiss-btn" aria-label="关闭提醒">
+        <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+        </svg>
+      </button>
+    </div>
+
+    <!-- Mode Switch Toolbar + Mirror Path Pill -->
+    <nav class="mode-toolbar" aria-label="工作台视图模式">
+      <div class="mode-tabs" role="group" aria-label="视图模式切换">
+        <button type="button" class="mode-btn active" data-mode="split" aria-pressed="true">分屏</button>
+        <button type="button" class="mode-btn" data-mode="source" aria-pressed="false">源码</button>
+        <button type="button" class="mode-btn" data-mode="diff" aria-pressed="false">Diff</button>
+        <button type="button" class="mode-btn" data-mode="pdf" aria-pressed="false">PDF</button>
+        <button type="button" class="mode-btn" data-mode="logs" aria-pressed="false">
+          <span>日志</span>
+          <span id="logs-badge" class="badge">0</span>
+        </button>
+      </div>
+
+      <div class="mirror-pill" title="本地实时镜像目录">
+        <span class="mirror-pill-dot" aria-hidden="true"></span>
+        <code id="mirror-path-text" class="mirror-path-text">未挂载本地镜像</code>
+        <button id="copy-mirror-btn" type="button" class="btn-inline" title="复制本地镜像路径" aria-label="复制镜像路径">
+          复制
+        </button>
+      </div>
+    </nav>
+
+    <!-- Main Workbench (Container Query Scope) -->
+    <main class="workbench">
+      <!-- Collapsible File Tree Drawer -->
+      <aside id="file-tree-drawer" class="file-tree-drawer" aria-label="项目文件树">
+        <div class="tree-toolbar">
+          <button id="new-doc-btn" type="button" class="btn-inline" title="新建文本文档">+文件</button>
+          <button id="new-folder-btn" type="button" class="btn-inline" title="新建文件夹">+文件夹</button>
+          <button id="upload-file-btn" type="button" class="btn-inline" title="上传图片或附件">上传</button>
+          <input id="upload-file-input" type="file" hidden>
+        </div>
+        <ul id="file-tree-list" class="file-tree" role="tree" aria-label="Overleaf 文件列表"></ul>
+      </aside>
+
+      <!-- Adaptive Split / Single Pane Container -->
+      <section id="split-container" class="split-container" data-mode="split" aria-label="工作区">
+        <!-- Source Pane -->
+        <section id="source-pane" class="pane source-pane" aria-label="源码编辑器">
+          <div class="pane-subheader">
+            <span id="active-file-breadcrumb" class="breadcrumb" title="当前文件">未选择文件</span>
+            <div class="pane-actions">
+              <button id="forward-sync-btn" type="button" class="btn-inline" title="正向 SyncTeX 跳转到 PDF">定位 PDF</button>
+              <button id="send-to-agent-btn" type="button" class="btn-inline" title="将当前文件与选区发送给 Agent">发给 Agent</button>
+              <button id="save-doc-btn" type="button" class="btn-inline btn-inline-accent" title="立即同步到 Overleaf">同步</button>
+            </div>
+          </div>
+
+          <div id="editor-wrap" class="editor-wrap">
+            <div id="editor-gutter" class="editor-gutter" aria-hidden="true"></div>
+            <pre id="editor-backdrop" class="editor-backdrop" aria-hidden="true"></pre>
+            <textarea
+              id="source-editor"
+              class="source-editor"
+              spellcheck="false"
+              autocorrect="off"
+              autocapitalize="none"
+              autocomplete="off"
+              aria-label="LaTeX 源码编辑器"
+            ></textarea>
+          </div>
+
+          <div id="binary-preview" class="binary-preview hidden"></div>
+        </section>
+
+        <!-- Draggable Resizer -->
+        <div
+          id="pane-resizer"
+          class="pane-resizer"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="调整源码与 PDF 分屏比例"
+          tabindex="0"
+        ></div>
+
+        <!-- Diff Pane -->
+        <section id="diff-pane" class="pane diff-pane hidden" aria-label="实时 Diff">
+          <div class="pane-subheader">
+            <span id="diff-summary" class="pane-summary">暂无改动对比</span>
+            <div class="pane-actions">
+              <button id="diff-undo-btn" type="button" class="btn-inline btn-inline-danger">一键撤回此轮改动</button>
+            </div>
+          </div>
+          <div id="diff-content" class="diff-content"></div>
+        </section>
+
+        <!-- PDF Preview Pane -->
+        <section id="pdf-pane" class="pane pdf-pane" aria-label="PDF 编译预览">
+          <div class="pane-subheader pdf-toolbar">
+            <div class="pdf-zoom-controls">
+              <button id="pdf-zoom-out" type="button" class="btn-icon-sm" title="缩小 PDF" aria-label="缩小 PDF">−</button>
+              <button id="pdf-zoom-fit" type="button" class="btn-inline" title="适应页面宽度">适应</button>
+              <button id="pdf-zoom-in" type="button" class="btn-icon-sm" title="放大 PDF" aria-label="放大 PDF">+</button>
+              <span id="pdf-zoom-label" class="pdf-zoom-label tabular">100%</span>
+            </div>
+            <div class="pdf-meta-controls">
+              <span id="pdf-page-info" class="pdf-page-info tabular">0 / 0 页</span>
+              <span id="pdf-status-text" class="pdf-status-text">未编译</span>
+            </div>
+          </div>
+
+          <div id="pdf-scroll-container" class="pdf-scroll-container">
+            <div id="pdf-pages-host" class="pdf-pages-host"></div>
+            <div id="pdf-empty-state" class="pdf-empty-state">
+              <svg width="36" height="36" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M7 3h7l5 5v11a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Zm7 1.5V8h3.5M8.5 12.5h7M8.5 16h5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+              <p>连接项目并点击 <strong>编译</strong> 后，可在此实时预览 PDF 与 SyncTeX 双向跳转。</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- Compile Logs Pane -->
+        <section id="logs-pane" class="pane logs-pane hidden" aria-label="编译日志与诊断">
+          <div class="pane-subheader">
+            <span id="logs-summary" class="pane-summary">暂无编译日志</span>
+            <div class="pane-actions">
+              <button id="logs-ask-agent-btn" type="button" class="btn-inline btn-inline-accent">让 Agent 自动修复报错</button>
+            </div>
+          </div>
+          <div id="logs-list" class="logs-list"></div>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <!-- Modal 1: Auth / Settings -->
+  <dialog id="auth-dialog" aria-labelledby="auth-dialog-title">
+    <div class="dialog-header">
+      <h2 id="auth-dialog-title" class="dialog-title">Overleaf 登录与连接设置</h2>
+    </div>
+    <div class="dialog-body">
+      <p id="auth-status-text" class="dialog-status">未检测到有效 Overleaf 会话</p>
+
+      <div class="field-group">
+        <label class="field-label" for="base-url-input">Overleaf 实例地址</label>
+        <input
+          id="base-url-input"
+          class="text-input"
+          type="url"
+          value="https://www.overleaf.com"
+          placeholder="https://www.overleaf.com"
+          autocorrect="off"
+          autocapitalize="none"
+          spellcheck="false"
+        >
+      </div>
+
+      <div class="popup-auth-box">
+        <div class="popup-auth-actions">
+          <button id="popup-login-btn" type="button" class="btn btn-primary">弹窗登录 Overleaf</button>
+          <button id="popup-cancel-btn" type="button" class="btn btn-ghost hidden">取消弹窗</button>
+        </div>
+        <p id="popup-hint" class="field-hint">
+          打开独立浏览器小窗完成 Google / 机构 SSO 或人机验证，成功后自动接管 Cookie。
+        </p>
+      </div>
+
+      <div class="field-group">
+        <label class="field-label" for="cookie-input">手动导入 Cookie / Session</label>
+        <textarea
+          id="cookie-input"
+          class="text-area"
+          rows="4"
+          autofocus
+          autocorrect="off"
+          autocapitalize="none"
+          spellcheck="false"
+          placeholder="粘贴 Cookie 头、overleaf_session2 值或 Cookie-Editor JSON..."
+        ></textarea>
+      </div>
+
+      <p id="auth-error-msg" class="dialog-error hidden" role="alert"></p>
+    </div>
+    <div class="dialog-actions">
+      <button id="logout-btn" type="button" class="btn btn-danger-ghost">退出登录</button>
+      <div class="dialog-actions-right">
+        <button id="auth-close-btn" type="button" class="btn btn-ghost">关闭</button>
+        <button id="save-cookie-btn" type="button" class="btn btn-primary">保存并验证</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Modal 2: Connect Project -->
+  <dialog id="connect-dialog" aria-labelledby="connect-dialog-title">
+    <div class="dialog-header">
+      <h2 id="connect-dialog-title" class="dialog-title">连接 Overleaf 项目</h2>
+    </div>
+    <div class="dialog-body">
+      <div class="field-group">
+        <label class="field-label" for="project-filter-input">搜索项目</label>
+        <input
+          id="project-filter-input"
+          class="text-input"
+          type="search"
+          autofocus
+          autocorrect="off"
+          autocapitalize="none"
+          spellcheck="false"
+          placeholder="搜索 Overleaf 项目名..."
+        >
+      </div>
+
+      <div class="field-group">
+        <label class="field-label" for="mirror-dir-input">本地镜像目录（可选）</label>
+        <input
+          id="mirror-dir-input"
+          class="text-input mono-input"
+          type="text"
+          autocorrect="off"
+          autocapitalize="none"
+          spellcheck="false"
+          placeholder="留空则自动保存到 ~/.gemini/antigravity/scratch/overleaf/..."
+        >
+      </div>
+
+      <div id="project-picker-list" class="project-picker-list" role="listbox" aria-label="可用 Overleaf 项目"></div>
+      <p id="connect-error-msg" class="dialog-error hidden" role="alert"></p>
+    </div>
+    <div class="dialog-actions">
+      <div class="dialog-actions-right">
+        <button id="connect-close-btn" type="button" class="btn btn-ghost">关闭</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Modal 3: Create / Rename Entity -->
+  <dialog id="entity-dialog" aria-labelledby="entity-dialog-title">
+    <div class="dialog-header">
+      <h2 id="entity-dialog-title" class="dialog-title">新建条目</h2>
+    </div>
+    <div class="dialog-body">
+      <p id="entity-parent-label" class="dialog-status">目标目录：/</p>
+      <div class="field-group">
+        <label class="field-label" for="entity-name-input">名称</label>
+        <input
+          id="entity-name-input"
+          class="text-input mono-input"
+          type="text"
+          autofocus
+          autocorrect="off"
+          autocapitalize="none"
+          spellcheck="false"
+          placeholder="输入文件名或文件夹名"
+        >
+      </div>
+      <p id="entity-error-msg" class="dialog-error hidden" role="alert"></p>
+    </div>
+    <div class="dialog-actions">
+      <div class="dialog-actions-right">
+        <button id="entity-cancel-btn" type="button" class="btn btn-ghost">取消</button>
+        <button id="entity-confirm-btn" type="button" class="btn btn-primary">确认</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Modal 4: Destructive Delete Confirmation -->
+  <dialog id="confirm-delete-dialog" aria-labelledby="confirm-delete-title">
+    <div class="dialog-header">
+      <h2 id="confirm-delete-title" class="dialog-title">确认删除</h2>
+    </div>
+    <div class="dialog-body">
+      <p id="confirm-delete-desc" class="dialog-desc">确认从项目与本地镜像中删除该条目吗？此操作不可轻易撤销。</p>
+    </div>
+    <form method="dialog" class="dialog-actions">
+      <button value="cancel" class="btn btn-ghost" autofocus>取消</button>
+      <button value="delete" class="btn btn-danger">确认删除</button>
+    </form>
+  </dialog>
+</body>
+</html>
